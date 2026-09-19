@@ -26,13 +26,13 @@ TOKEN = "8956631728:AAE_gm59PZECONsyUyhm4b8GqKbcGId10QE"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "أهلاً بك في بوت التحميل الشامل! 🚀🔥\n\n"
-        "أنا جاهز لتحميل الفيديوهات من:\n"
-        "🔹 فيسبوك (Facebook)\n"
-        "🔹 تيك توك (TikTok)\n"
+        "أهلاً بك في بوت التحميل الشامل الخارق! 🚀🔥\n\n"
+        "جاهز لتحميل أي فيديو (حتى لو كان حجمه 1 جيجا أو أكثر) من:\n"
         "🔹 يوتيوب (YouTube)\n"
-        "🔹 انستجرام (Instagram)\n\n"
-        "فقط أرسل رابط الفيديو وسأتولى الباقي فوراً!"
+        "🔹 فيسبوك (Facebook)\n"
+        "🔹 تيك توك (TikTok - بدون علامة مائية)\n"
+        "🔹 انستجرام (Instagram - Reels & Videos)\n\n"
+        "فقط أرسل الرابط وسأتولى التحميل مهما كان حجمه!"
     )
 
 async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -43,21 +43,23 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("❌ الرجاء إرسال رابط صالح يبدأ بـ http أو https.")
         return
 
-    processing_msg = await update.message.reply_text("⚡ جاري تحليل وتحميل الفيديو بكل صيغه، انتظر قليلاً...")
+    processing_msg = await update.message.reply_text("⏳ جاري سحب وتنزيل الفيديو (قد يستغرق الملف الكبير وقتاً أطول، انتظر قليلاً)...")
 
     output_filename = f"video_{chat_id}.mp4"
 
-    # إعدادات متقدمة ومرنة لـ yt-dlp لتجاوز حماية تيك توك، إنستغرام، وفيسبوك
+    # إعدادات فائقة القوة للتعامل مع الملفات الضخمة والروابط المعقدة لكافة المنصات
     ydl_opts = {
-        'format': 'bestvideo+bestaudio/best/best',
+        'format': 'best[ext=mp4]/best',  # صيغة مدمجة ومستقرة تتجنب أخطاء الدمج وتدعم الحجم الكبير
         'outtmpl': output_filename,
         'noplaylist': True,
-        'socket_timeout': 30,
+        'socket_timeout': 60,          # زيادة مهلة الانتظار للملفات الضخمة
+        'retries': 20,                 # محاولات متكررة عند ضعف الاتصال
+        'fragment_retries': 20,
         'geo_bypass': True,
         'no_warnings': True,
         'nocheckcertificate': True,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
         }
     }
 
@@ -67,24 +69,16 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
         
+        # تنفيذ التحميل في مسار منفصل لكي لا يتجمد البوت
         await loop.run_in_executor(None, download)
 
-        # استراتيجية السقوط الآمن إذا لم يتوفر ملف الدمج
-        if not os.path.exists(output_filename):
-            fallback_opts = {
-                'format': 'best',
-                'outtmpl': output_filename,
-                'noplaylist': True,
-                'geo_bypass': True,
-            }
-            def download_fallback():
-                with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
-                    ydl_fb.download([url])
-            await loop.run_in_executor(None, download_fallback)
-
         if os.path.exists(output_filename):
+            file_size_mb = os.path.getsize(output_filename) / (1024 * 1024)
+            await processing_msg.edit_text(f"📤 تم التحميل بنجاح (الحجم: {file_size_mb:.1f} MB)، جاري رفع الفيديو إليك...")
+            
             await update.message.reply_chat_action("upload_video")
             
+            # محاولات متعددة لرفع الملفات الكبيرة لتجاوز ضغط الشبكة
             success = False
             for attempt in range(3):
                 try:
@@ -93,15 +87,16 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                             chat_id=chat_id, 
                             video=video_file,
                             supports_streaming=True,
-                            caption="✅ تم التحميل وإرسال الفيديو بنجاح بواسطة بوت الراشدي!"
+                            caption="✅ تم رفع الفيديو بنجاح بواسطة بوت الراشدي الخارق!"
                         )
                     success = True
                     break
-                except Exception:
+                except Exception as upload_err:
                     if attempt == 2:
-                        raise
-                    await asyncio.sleep(2)
+                        raise upload_err
+                    await asyncio.sleep(5)
 
+            # تنظيف السيرفر وحذف الملف بعد الإرسال لتفريغ الذاكرة
             if os.path.exists(output_filename):
                 os.remove(output_filename)
             
@@ -110,12 +105,11 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             await processing_msg.edit_text("❌ لم أتمكن من استخراج الفيديو. تأكد أن الرابط عام وليس محمياً بحساب خاص.")
 
     except Exception as e:
-        await processing_msg.edit_text("❌ حدث خطأ أثناء التحميل أو الاتصال. تأكد أن الرابط عام وليس محمياً بحساب خاص.")
+        await processing_msg.edit_text(f"❌ حدث خطأ أثناء التحميل أو الاتصال (الملف قد يكون محمي أو كبير جداً على السيرفر).")
         if os.path.exists(output_filename):
             os.remove(output_filename)
 
 def main():
-    # تشغيل سيرفر الويب الوهمي للحفاظ على ديمومة العمل على Render
     keep_alive()
 
     app = Application.builder().token(TOKEN).build()
@@ -123,7 +117,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send_video))
 
-    print("Bot is running smoothly and ready...")
+    print("Bot is running smoothly and ready for massive downloads...")
     app.run_polling()
 
 if __name__ == "__main__":
