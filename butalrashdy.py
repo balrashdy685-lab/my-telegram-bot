@@ -21,7 +21,8 @@ def keep_alive():
     t.start()
 
 # التوكن الخاص بك
-TOKEN = "8948025390:AAFMgibR1kMcRohobi65uSuqJoA2NV4Tqyo"
+TOKEN = "8948025390:AAEySDEKrOb5XKhEd1BCVFibXvQb7RqgjCI"
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
