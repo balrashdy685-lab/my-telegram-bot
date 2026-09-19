@@ -47,19 +47,25 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
 
     output_filename = f"video_{chat_id}.mp4"
 
-    # إعدادات فائقة القوة للتعامل مع الملفات الضخمة والروابط المعقدة لكافة المنصات
+    # إعدادات فائقة القوة ومحاكاة متصفح حقيقي لتجاوز حماية يوتيوب وفيسبوك المستعصية
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',  # صيغة مدمجة ومستقرة تتجنب أخطاء الدمج وتدعم الحجم الكبير
+        'format': 'best/bestvideo+bestaudio',
         'outtmpl': output_filename,
         'noplaylist': True,
         'socket_timeout': 60,          # زيادة مهلة الانتظار للملفات الضخمة
-        'retries': 20,                 # محاولات متكررة عند ضعف الاتصال
-        'fragment_retries': 20,
+        'retries': 30,                 # محاولات متكررة عند ضعف الاتصال
+        'fragment_retries': 30,
         'geo_bypass': True,
         'no_warnings': True,
         'nocheckcertificate': True,
+        # ترويسات متصفح كروم حقيقي لمنع حظر يوتيوب وفيسبوك
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Sec-Ch-Ua': '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
         }
     }
 
