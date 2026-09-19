@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import asyncio
 from threading import Thread
@@ -6,7 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import yt_dlp
 
-# 1. إعداد سيرفر ويب وهمي لجعل Render يترك البوت يعمل 24 ساعة
+# 1. إعداد سيرفر ويب وهمي لجعل Render يترك البوت يعمل 24 ساعة دون إغلاق
 app = Flask('')
 
 @app.route('/')
@@ -20,9 +21,8 @@ def keep_alive():
     t = Thread(target=run_web)
     t.start()
 
-# التوكن الخاص بك
+# التوكن الجديد والنظيف الخاص بك
 TOKEN = "8956631728:AAE_gm59PZECONsyUyhm4b8GqKbcGId10QE"
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -39,15 +39,26 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
     url = update.message.text
     chat_id = update.message.chat_id
     
-    processing_msg = await update.message.reply_text("⚡ جاري تحميل وإرسال الفيديو، انتظر قليلاً...")
+    if not url.startswith("http"):
+        await update.message.reply_text("❌ الرجاء إرسال رابط صالح يبدأ بـ http أو https.")
+        return
+
+    processing_msg = await update.message.reply_text("⚡ جاري تحليل وتحميل الفيديو بكل صيغه، انتظر قليلاً...")
 
     output_filename = f"video_{chat_id}.mp4"
 
+    # إعدادات متقدمة ومرنة لـ yt-dlp لتجاوز حماية تيك توك، إنستغرام، وفيسبوك
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',
+        'format': 'bestvideo+bestaudio/best/best',
         'outtmpl': output_filename,
         'noplaylist': True,
         'socket_timeout': 30,
+        'geo_bypass': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
     }
 
     try:
@@ -57,6 +68,19 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 ydl.download([url])
         
         await loop.run_in_executor(None, download)
+
+        # استراتيجية السقوط الآمن إذا لم يتوفر ملف الدمج
+        if not os.path.exists(output_filename):
+            fallback_opts = {
+                'format': 'best',
+                'outtmpl': output_filename,
+                'noplaylist': True,
+                'geo_bypass': True,
+            }
+            def download_fallback():
+                with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
+                    ydl_fb.download([url])
+            await loop.run_in_executor(None, download_fallback)
 
         if os.path.exists(output_filename):
             await update.message.reply_chat_action("upload_video")
@@ -69,7 +93,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                             chat_id=chat_id, 
                             video=video_file,
                             supports_streaming=True,
-                            caption="✅ تم التحميل وإرسال الفيديو بنجاح!"
+                            caption="✅ تم التحميل وإرسال الفيديو بنجاح بواسطة بوت الراشدي!"
                         )
                     success = True
                     break
@@ -83,7 +107,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             
             await processing_msg.delete()
         else:
-            await processing_msg.edit_text("❌ لم أتمكن من استخراج الفيديو. تأكد أن الرابط صالح.")
+            await processing_msg.edit_text("❌ لم أتمكن من استخراج الفيديو. تأكد أن الرابط عام وليس محمياً بحساب خاص.")
 
     except Exception as e:
         await processing_msg.edit_text("❌ حدث خطأ أثناء التحميل أو الاتصال. تأكد أن الرابط عام وليس محمياً بحساب خاص.")
@@ -91,7 +115,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             os.remove(output_filename)
 
 def main():
-    # تشغيل سيرفر الويب الوهمي أولاً لمنع إغلاق ريندر
+    # تشغيل سيرفر الويب الوهمي للحفاظ على ديمومة العمل على Render
     keep_alive()
 
     app = Application.builder().token(TOKEN).build()
