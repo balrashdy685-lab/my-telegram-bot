@@ -249,8 +249,9 @@ def main():
     threading.Thread(target=run_server, daemon=True).start()
     threading.Thread(target=self_ping, daemon=True).start()
 
-    logger.info("Bot is starting...")
-    build_app(token).run_polling(drop_pending_updates=True)
+   logger.info("Bot is starting...")
+    asyncio.set_event_loop(asyncio.new_event_loop())
+    build_app(token).run_polling(drop_pending_updates=True) 
 
 
 if __name__ == "__main__":
