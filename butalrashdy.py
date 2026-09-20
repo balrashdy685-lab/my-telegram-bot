@@ -1,117 +1,257 @@
-# -*- coding: utf-8 -*-
-import os
 import asyncio
-from threading import Thread
+import glob
+import logging
+import os
+import re
+import tempfile
+import threading
+import time
+import urllib.request
+from urllib.parse import urlparse
+
+import yt_dlp
 from flask import Flask
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import yt_dlp
+from telegram.constants import ChatAction
+from telegram.error import TelegramError
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
-# 1. إعداد سيرفر ويب وهمي للحفاظ على ديمومة عمل البوت 24/7
-app = Flask('')
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger("bot")
 
-@app.route('/')
-def home():
-    return "Bot is active and running 24/7!"
+# ------------------------------------------------------------------
+# الإعدادات
+# ------------------------------------------------------------------
+MAX_SIZE = 50 * 1024 * 1024  # حد تلجرام للبوتات = 50 ميجا
 
-def run_web():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+FORMAT = (
+    "b[ext=mp4][filesize<50M]/"
+    "b[ext=mp4][filesize_approx<50M]/"
+    "bv*[height<=720][ext=mp4]+ba[ext=m4a]/"
+    "b[ext=mp4]/b"
+)
 
-def keep_alive():
-    t = Thread(target=run_web)
-    t.start()
+URL_REGEX = re.compile(r"https?://\S+")
+SUPPORTED_DOMAINS = (
+    "tiktok.com",
+    "facebook.com",
+    "fb.watch",
+    "fb.com",
+    "youtube.com",
+    "youtu.be",
+    "instagram.com",
+)
 
-# التوكن الخاص بك
-TOKEN = "8956631728:AAE_gm59PZECONsyUyhm4b8GqKbcGId10QE"
+# أقصى عدد تنزيلات في نفس الوقت (لحماية ذاكرة السيرفر المجاني)
+SEM = asyncio.Semaphore(2)
+
+
+# ------------------------------------------------------------------
+# التحميل
+# ------------------------------------------------------------------
+class VideoError(Exception):
+    """خطأ برسالة مناسبة لعرضها للمستخدم."""
+
+
+class TooLargeError(VideoError):
+    pass
+
+
+def friendly_error(msg: str) -> str:
+    low = msg.lower()
+    if any(k in low for k in ("sign in", "log in", "login", "cookies", "not a bot", "rate-limit", "rate limit")):
+        return (
+            "❌ المنصة طلبت تسجيل دخول أو منعت الطلب من السيرفر.\n"
+            "جرّب رابطاً آخر أو أعد المحاولة بعد قليل."
+        )
+    if any(k in low for k in ("private", "unavailable", "not available", "removed", "deleted")):
+        return "❌ الفيديو خاص أو محذوف أو غير متاح."
+    return "❌ تعذر تنزيل الفيديو. تأكد أن الرابط صحيح وأن الفيديو عام."
+
+
+def download_video(url: str, out_dir: str):
+    """تنزيل الفيديو. تعيد (مسار_الملف, العنوان). تعمل في thread منفصل."""
+    opts = {
+        "outtmpl": os.path.join(out_dir, "%(id)s.%(ext)s"),
+        "format": FORMAT,
+        "merge_output_format": "mp4",
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 30,
+        "retries": 3,
+        "restrictfilenames": True,
+    }
+    # اختياري: بروكسي عبر متغير بيئة PROXY
+    proxy = os.getenv("PROXY")
+    if proxy:
+        opts["proxy"] = proxy
+
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+    except yt_dlp.utils.DownloadError as e:
+        raise VideoError(friendly_error(str(e))) from e
+
+    if info and info.get("entries"):
+        entries = [e for e in info["entries"] if e]
+        info = entries[0] if entries else None
+    if not info:
+        raise VideoError("❌ لم أجد فيديو في هذا الرابط.")
+
+    downloads = info.get("requested_downloads") or []
+    path = downloads[0].get("filepath") if downloads else None
+    if not path or not os.path.exists(path):
+        files = glob.glob(os.path.join(out_dir, "*"))
+        if not files:
+            raise VideoError("❌ لم أجد الملف بعد التنزيل.")
+        path = max(files, key=os.path.getsize)
+
+    if os.path.getsize(path) > MAX_SIZE:
+        raise TooLargeError(
+            "⚠️ حجم الفيديو أكبر من 50 ميجا، وتلجرام لا يسمح للبوتات بإرسال ملفات بهذا الحجم."
+        )
+
+    return path, (info.get("title") or "")
+
+
+# ------------------------------------------------------------------
+# البوت
+# ------------------------------------------------------------------
+def is_supported(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == d or host.endswith("." + d) for d in SUPPORTED_DOMAINS)
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "أهلاً بك في بوت التحميل الشامل المطور! 🚀🔥\n\n"
-        "جاهز لتحميل الفيديوهات بكفاءة عالية من:\n"
-        "🔹 يوتيوب (YouTube)\n"
-        "🔹 فيسبوك (Facebook)\n"
-        "🔹 تيك توك (TikTok)\n"
-        "🔹 انستجرام (Instagram)\n\n"
-        "فقط أرسل رابط الفيديو وسأتولى التحميل فوراً!"
+        "أهلاً بك 👋\n"
+        "أرسل لي رابط فيديو من:\n"
+        "• تيك توك\n• فيسبوك\n• يوتيوب\n• انستجرام\n\n"
+        "وسأرسل لك الفيديو مباشرة 🎬"
     )
 
-async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text
-    chat_id = update.message.chat_id
-    
-    if not url.startswith("http"):
-        await update.message.reply_text("❌ الرجاء إرسال رابط صالح يبدأ بـ http أو https.")
+
+async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not msg or not msg.text:
         return
 
-    processing_msg = await update.message.reply_text("⏳ جاري سحب ومعالجة الرابط، انتظر قليلاً...")
+    match = URL_REGEX.search(msg.text)
+    if not match:
+        await msg.reply_text("أرسل رابط فيديو صحيح من فضلك 🔗")
+        return
 
-    output_filename = f"video_{chat_id}.mp4"
+    url = match.group(0)
+    if not is_supported(url):
+        await msg.reply_text(
+            "❌ هذا الرابط غير مدعوم.\n"
+            "المنصات المدعومة: تيك توك، فيسبوك، يوتيوب، انستجرام."
+        )
+        return
 
-    # خيارات مضمونة ومستقرة تماماً لسيرفرات الاستضافة المجانية
-    ydl_opts = {
-        'format': 'best[ext=mp4]/best',  # اختيار أفضل صيغة mp4 جاهزة لتجنب أي أخطاء دمج
-        'outtmpl': output_filename,
-        'noplaylist': True,
-        'socket_timeout': 60,
-        'retries': 20,
-        'geo_bypass': True,
-        'no_warnings': True,
-        'nocheckcertificate': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-        }
-    }
+    status = await msg.reply_text("⏳ جاري التنزيل، انتظر قليلاً...")
 
-    try:
-        loop = asyncio.get_running_loop()
-        def download():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-        
-        await loop.run_in_executor(None, download)
+    async with SEM:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                await msg.chat.send_action(ChatAction.UPLOAD_VIDEO)
+                path, title = await asyncio.to_thread(download_video, url, tmp_dir)
+            except VideoError as e:
+                await status.edit_text(str(e))
+                return
+            except Exception:
+                logger.exception("Unexpected download error")
+                await status.edit_text("❌ حدث خطأ غير متوقع أثناء التنزيل.")
+                return
 
-        if os.path.exists(output_filename):
-            file_size_mb = os.path.getsize(output_filename) / (1024 * 1024)
-            await processing_msg.edit_text(f"📤 تم التحميل بنجاح (الحجم: {file_size_mb:.1f} MB)، جاري الرفع...")
-            
-            await update.message.reply_chat_action("upload_video")
-            
-            for attempt in range(3):
-                try:
-                    with open(output_filename, 'rb') as video_file:
-                        await context.bot.send_video(
-                            chat_id=chat_id, 
-                            video=video_file,
-                            supports_streaming=True,
-                            caption="✅ تم إرسال الفيديو بنجاح بواسطة بوت الراشدي!"
-                        )
-                    break
-                except Exception as e:
-                    if attempt == 2:
-                        raise e
-                    await asyncio.sleep(3)
+            try:
+                await status.edit_text("📤 جاري الإرسال...")
+                with open(path, "rb") as f:
+                    await msg.reply_video(
+                        video=f,
+                        caption=title[:1000],
+                        supports_streaming=True,
+                        read_timeout=180,
+                        write_timeout=180,
+                        connect_timeout=60,
+                    )
+                await status.delete()
+            except TelegramError:
+                logger.exception("Send failed")
+                await status.edit_text("❌ حدث خطأ أثناء إرسال الفيديو.")
 
-            if os.path.exists(output_filename):
-                os.remove(output_filename)
-            
-            await processing_msg.delete()
-        else:
-            await processing_msg.edit_text("❌ اعتذاري، لم استطع سحب هذا الرابط. تأكد أنه عام وليس خاصاً.")
 
-    except Exception as e:
-        await processing_msg.edit_text("❌ حدث خطأ أثناء الاتصال بالرابط المطلوب. جرب رابطاً آخر عاماً.")
-        if os.path.exists(output_filename):
-            os.remove(output_filename)
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error("Unhandled error", exc_info=context.error)
 
-def main():
-    keep_alive()
-    app = Application.builder().token(TOKEN).build()
 
+def build_app(token: str):
+    app = ApplicationBuilder().token(token).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send_video))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
+    app.add_error_handler(on_error)
+    return app
 
-    print("Bot is running and ready...")
-    app.run_polling()
+
+# ------------------------------------------------------------------
+# سيرفر Flask (للإبقاء على الخدمة مستيقظة على Render)
+# ------------------------------------------------------------------
+web = Flask(__name__)
+
+
+@web.route("/")
+def home():
+    return "Bot is running ✅"
+
+
+@web.route("/health")
+def health():
+    return "OK", 200
+
+
+def run_server():
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
+    port = int(os.getenv("PORT", "10000"))
+    web.run(host="0.0.0.0", port=port, use_reloader=False)
+
+
+def self_ping():
+    """يرسل طلباً لنفسه كل 10 دقائق (Render يوفر RENDER_EXTERNAL_URL تلقائياً)."""
+    url = os.getenv("RENDER_EXTERNAL_URL")
+    if not url:
+        return
+    while True:
+        time.sleep(600)
+        try:
+            urllib.request.urlopen(url + "/health", timeout=15).read()
+        except Exception as e:
+            logger.warning("Self ping failed: %s", e)
+
+
+# ------------------------------------------------------------------
+# التشغيل
+# ------------------------------------------------------------------
+def main():
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        raise SystemExit("BOT_TOKEN غير موجود. أضفه في Environment على Render.")
+
+    threading.Thread(target=run_server, daemon=True).start()
+    threading.Thread(target=self_ping, daemon=True).start()
+
+    logger.info("Bot is starting...")
+    build_app(token).run_polling(drop_pending_updates=True)
+
 
 if __name__ == "__main__":
     main()
