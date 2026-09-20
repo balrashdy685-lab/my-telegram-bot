@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import yt_dlp
 
-# 1. إعداد سيرفر ويب وهمي لجعل Render يترك البوت يعمل 24 ساعة دون إغلاق
+# 1. إعداد سيرفر ويب وهمي للحفاظ على ديمومة عمل البوت 24/7
 app = Flask('')
 
 @app.route('/')
@@ -21,18 +21,18 @@ def keep_alive():
     t = Thread(target=run_web)
     t.start()
 
-# التوكن الجديد والنظيف الخاص بك
+# التوكن الخاص بك
 TOKEN = "8956631728:AAE_gm59PZECONsyUyhm4b8GqKbcGId10QE"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "أهلاً بك في بوت التحميل الشامل الخارق! 🚀🔥\n\n"
-        "جاهز لتحميل أي فيديو (حتى لو كان حجمه 1 جيجا أو أكثر) من:\n"
-        "🔹 يوتيوب (YouTube)\n"
+        "أهلاً بك في بوت التحميل الشامل المطور (نسخة الموبايل الخارقة) 🚀🔥\n\n"
+        "جاهز لتحميل الفيديوهات بكفاءة عالية من:\n"
+        "🔹 يوتيوب (بواسطة محاكي تطبيقات الأندرويد)\n"
         "🔹 فيسبوك (Facebook)\n"
-        "🔹 تيك توك (TikTok - بدون علامة مائية)\n"
-        "🔹 انستجرام (Instagram - Reels & Videos)\n\n"
-        "فقط أرسل الرابط وسأتولى التحميل مهما كان حجمه!"
+        "🔹 تيك توك (TikTok)\n"
+        "🔹 انستجرام (Instagram)\n\n"
+        "فقط أرسل رابط الفيديو وسأتولى التحميل فوراً!"
     )
 
 async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -43,29 +43,28 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("❌ الرجاء إرسال رابط صالح يبدأ بـ http أو https.")
         return
 
-    processing_msg = await update.message.reply_text("⏳ جاري سحب وتنزيل الفيديو (قد يستغرق الملف الكبير وقتاً أطول، انتظر قليلاً)...")
+    processing_msg = await update.message.reply_text("⏳ جاري سحب ومعالجة الرابط عبر مشغل التطبيقات الذكي، انتظر قليلاً...")
 
     output_filename = f"video_{chat_id}.mp4"
 
-    # إعدادات فائقة القوة ومحاكاة متصفح حقيقي لتجاوز حماية يوتيوب وفيسبوك المستعصية
+    # إعدادات ذكية جداً تخدع حماية يوتيوب وفيسبوك عبر محاكاة عميل أندرويد
     ydl_opts = {
-        'format': 'best/bestvideo+bestaudio',
+        'format': 'best[ext=mp4]/best',
         'outtmpl': output_filename,
         'noplaylist': True,
-        'socket_timeout': 60,          # زيادة مهلة الانتظار للملفات الضخمة
-        'retries': 30,                 # محاولات متكررة عند ضعف الاتصال
-        'fragment_retries': 30,
+        'socket_timeout': 60,
+        'retries': 30,
         'geo_bypass': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        # ترويسات متصفح كروم حقيقي لمنع حظر يوتيوب وفيسبوك
+        # الحل العبقري: خداع يوتيوب بالظهور كتطبيق هاتف محمول لتفادي حظر السيرفرات
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+            }
+        },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Sec-Ch-Ua': '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
-            'Sec-Ch-Ua-Mobile': '?0',
-            'Sec-Ch-Ua-Platform': '"Windows"',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
         }
     }
 
@@ -75,17 +74,14 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
         
-        # تنفيذ التحميل في مسار منفصل لكي لا يتجمد البوت
         await loop.run_in_executor(None, download)
 
         if os.path.exists(output_filename):
             file_size_mb = os.path.getsize(output_filename) / (1024 * 1024)
-            await processing_msg.edit_text(f"📤 تم التحميل بنجاح (الحجم: {file_size_mb:.1f} MB)، جاري رفع الفيديو إليك...")
+            await processing_msg.edit_text(f"📤 تم التحميل بنجاح (الحجم: {file_size_mb:.1f} MB)، جاري الرفع...")
             
             await update.message.reply_chat_action("upload_video")
             
-            # محاولات متعددة لرفع الملفات الكبيرة لتجاوز ضغط الشبكة
-            success = False
             for attempt in range(3):
                 try:
                     with open(output_filename, 'rb') as video_file:
@@ -93,37 +89,34 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                             chat_id=chat_id, 
                             video=video_file,
                             supports_streaming=True,
-                            caption="✅ تم رفع الفيديو بنجاح بواسطة بوت الراشدي الخارق!"
+                            caption="✅ تم إرسال الفيديو بنجاح بواسطة بوت الراشدي الخارق!"
                         )
-                    success = True
                     break
-                except Exception as upload_err:
+                except Exception as e:
                     if attempt == 2:
-                        raise upload_err
-                    await asyncio.sleep(5)
+                        raise e
+                    await asyncio.sleep(3)
 
-            # تنظيف السيرفر وحذف الملف بعد الإرسال لتفريغ الذاكرة
             if os.path.exists(output_filename):
                 os.remove(output_filename)
             
             await processing_msg.delete()
         else:
-            await processing_msg.edit_text("❌ لم أتمكن من استخراج الفيديو. تأكد أن الرابط عام وليس محمياً بحساب خاص.")
+            await processing_msg.edit_text("❌ لم استطع سحب هذا الرابط. تأكد أنه عام وليس خاصاً.")
 
     except Exception as e:
-        await processing_msg.edit_text(f"❌ حدث خطأ أثناء التحميل أو الاتصال (الملف قد يكون محمي أو كبير جداً على السيرفر).")
+        await processing_msg.edit_text("❌ حدث خطأ أثناء الاتصال بالرابط. يوتيوب أو فيسبوك قد يفرضان قيوداً على هذا الرابط المحدد.")
         if os.path.exists(output_filename):
             os.remove(output_filename)
 
 def main():
     keep_alive()
-
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send_video))
 
-    print("Bot is running smoothly and ready for massive downloads...")
+    print("Bot is running and ready with Android spoofing...")
     app.run_polling()
 
 if __name__ == "__main__":
