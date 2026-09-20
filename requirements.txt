@@ -1,5 +1,5 @@
-python-telegram-bot
+python-telegram-bot>=21.0,<22
 yt-dlp
-flask
+Flask>=3.0
 
 
