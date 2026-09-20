@@ -7,12 +7,12 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import yt_dlp
 
-# 1. إعداد سيرفر ويب للحفاظ على ديمومة عمل البوت 24/7 على Render
+# 1. إعداد سيرفر ويب وهمي للحفاظ على ديمومة عمل البوت 24/7
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Facebook Bot is active and running 24/7!"
+    return "Bot is active and running 24/7!"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
@@ -21,30 +21,35 @@ def keep_alive():
     t = Thread(target=run_web)
     t.start()
 
-# التوكن الخاص بالبوت
+# التوكن الخاص بك
 TOKEN = "8956631728:AAE_gm59PZECONsyUyhm4b8GqKbcGId10QE"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "أهلاً بك في بوت تحميل فيديوهات فيسبوك فقط! 📘🔥\n\n"
-        "أرسل أي رابط فيديو أو ريلز (Reels) من فيسبوك وسأقوم بتحميله وإرساله إليك فوراً وبأفضل جودة!"
+        "أهلاً بك في بوت التحميل الشامل المطور! 🚀🔥\n\n"
+        "جاهز لتحميل الفيديوهات بكفاءة عالية من:\n"
+        "🔹 يوتيوب (YouTube)\n"
+        "🔹 فيسبوك (Facebook)\n"
+        "🔹 تيك توك (TikTok)\n"
+        "🔹 انستجرام (Instagram)\n\n"
+        "فقط أرسل رابط الفيديو وسأتولى التحميل فوراً!"
     )
 
-async def download_facebook_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
     chat_id = update.message.chat_id
     
-    if "facebook.com" not in url and "fb.watch" not in url:
-        await update.message.reply_text("❌ هذا البوت مخصص لفيسبوك فقط. الرجاء إرسال رابط فيسبوك صالح.")
+    if not url.startswith("http"):
+        await update.message.reply_text("❌ الرجاء إرسال رابط صالح يبدأ بـ http أو https.")
         return
 
-    processing_msg = await update.message.reply_text("⏳ جاري سحب ومعالجة فيديو الفيسبوك، انتظر قليلاً...")
+    processing_msg = await update.message.reply_text("⏳ جاري سحب ومعالجة الرابط، انتظر قليلاً...")
 
-    output_filename = f"fb_video_{chat_id}.mp4"
+    output_filename = f"video_{chat_id}.mp4"
 
-    # إعدادات مخصصة ومستقرة لروابط الفيسبوك
+    # خيارات مضمونة ومستقرة تماماً لسيرفرات الاستضافة المجانية
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',
+        'format': 'best[ext=mp4]/best',  # اختيار أفضل صيغة mp4 جاهزة لتجنب أي أخطاء دمج
         'outtmpl': output_filename,
         'noplaylist': True,
         'socket_timeout': 60,
@@ -78,7 +83,7 @@ async def download_facebook_video(update: Update, context: ContextTypes.DEFAULT_
                             chat_id=chat_id, 
                             video=video_file,
                             supports_streaming=True,
-                            caption="✅ تم إرسال فيديو الفيسبوك بنجاح بواسطة بوت الراشدي!"
+                            caption="✅ تم إرسال الفيديو بنجاح بواسطة بوت الراشدي!"
                         )
                     break
                 except Exception as e:
@@ -91,10 +96,10 @@ async def download_facebook_video(update: Update, context: ContextTypes.DEFAULT_
             
             await processing_msg.delete()
         else:
-            await processing_msg.edit_text("❌ لم أتمكن من سحب الفيديو. تأكد أن المنشور عام وليس خاصاً.")
+            await processing_msg.edit_text("❌ اعتذاري، لم استطع سحب هذا الرابط. تأكد أنه عام وليس خاصاً.")
 
     except Exception as e:
-        await processing_msg.edit_text("❌ حدث خطأ أثناء الاتصال برابط الفيسبوك. تأكد أن الرابط صحيح وعام.")
+        await processing_msg.edit_text("❌ حدث خطأ أثناء الاتصال بالرابط المطلوب. جرب رابطاً آخر عاماً.")
         if os.path.exists(output_filename):
             os.remove(output_filename)
 
@@ -103,9 +108,9 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_facebook_video))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send_video))
 
-    print("Facebook Bot is running and ready...")
+    print("Bot is running and ready...")
     app.run_polling()
 
 if __name__ == "__main__":
